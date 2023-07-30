@@ -1,92 +1,71 @@
-from agents.execution_agent import ExecutionAgent
-from agents.context_agent import ContextAgent
-from agents.task_creation_agent import TaskCreationAgent
-from agents.priority_agent import PriorityAgent
-from agents.tool_creation_agent import ToolCreationAgent
-from langchain.agents import AgentExecutor
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.schema import Document
-from langchain.llms import AzureOpenAI
-from re import sub
+# YAGTA - Yet another autonomous task agent - experiments in autonomous GPT agents that learn over time
+# jack@latrobe.group
+
+## main.py - main program loop for YAGTA
+
+# Base Imports
 import os
 import sys
 import logging
+from collections import deque
+from typing import Dict, List, Optional, Any
 
-# Set this to `azure`
-os.getenv("OPENAI_API_TYPE", default="azure")
+# Logging - Initialise
+logging.basicConfig(encoding='utf-8', level=logging.INFO)
 
-# The API version you want to use: set this to `2023-03-15-preview` for the released version.
-os.getenv("OPENAI_API_VERSION", default="2023-03-15-preview")
+# Langchain Imports
+from langchain import LLMChain, PromptTemplate
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.llms import BaseLLM, OpenAI
+from langchain.vectorstores.base import VectorStore
+from pydantic import BaseModel, Field
+from langchain.chains.base import Chain
 
-# The base URL for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
-os.getenv("OPENAI_API_BASE", default="https://your-resource-name.openai.azure.com")
+# YAGTA Imports
+from babyagi import *
 
-# The API key for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
+# Vectorstore - Imports
+from langchain.vectorstores import FAISS
+from langchain.docstore import InMemoryDocstore
+
+# OpenAI LLM - The API key for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
 if "OPENAI_API_KEY" not in os.environ:
     logging.CRITICAL("Env OPENAI_API_KEY not set - exiting")
     sys.exit(1)
 
+
 # Program main loop
 def main():
-    # Establish connection to LLM
-    llm = AzureOpenAI(
+    # OpenAI LLM - Establish connection to the GPT LLM
+    llm = OpenAI(
         deployment_name="chat",
         model_name="gpt-35-turbo",
         temperature=0.1,
     )
 
-    # Initialize your agents
-    execution_agent = ExecutionAgent(llm=llm)
-    context_agent = ContextAgent(llm=llm)
-    task_creation_agent = TaskCreationAgent(llm=llm)
-    priority_agent = PriorityAgent(llm=llm)
-    tool_creation_agent = ToolCreationAgent(llm=llm)
+    # BabyAGI - Define an objective for the AI
+    OBJECTIVE = "Write a weather report for Melbourne, VIC today"
 
-    # List of your agents
-    agents = [execution_agent, context_agent, task_creation_agent, priority_agent, tool_creation_agent]
+    # Vectorstore - Define your embedding model
+    embeddings_model = OpenAIEmbeddings()
 
-    # Loop through your agent flow
-    keep_working = True
-    while keep_working:
-        current_objective = "This is a test"
-        available_tools = get_tools(current_objective)
-        query = "What should we do to achieve the current objective: {current_objective}".format(current_objective=current_objective)
-        for agent in agents:
-            agent_executor = AgentExecutor.from_agent_and_tools(agent=agent, tools=available_tools, verbose=True)
-            response = agent_executor.run(query)
-            query = response
+    # Vectorstore - Connect to the vector store
+    embedding_size = 1536
+    index = FAISS.IndexFlatL2(embedding_size)
 
-# Function for dynamically loading any new tools written between each iteration
-def discover_tools():
-    tools = []
-    for directories, subdirectories, files in os.walk("./tools/"):
-        for file in files:
-            base_name = str(file).removesuffix(".py")
-            function_name = camel_case(base_name)
-            try:
-                eval("exec('from tools.{base_name} import {function_name}')".format(base_name=base_name, function_name=function_name))
-                tools.append(eval("{object_name} = {function_name}()".format(object_name=function_name, function_name=function_name)))
-            except Exception as ex:
-                # TODO - Failure to import should raise a task to have ToolCreationAgent re-examine this tools src code
-                pass
-    return tools
+    vectorstore = FAISS(embeddings_model.embed_query, index, InMemoryDocstore({}), {})
 
-def get_tools(query):
-    tools = discover_tools()
-    docs = [
-            Document(page_content=t.description, metadata={"index": i})
-            for i, t in enumerate(tools)
-        ]
-    vector_store = FAISS.from_documents(docs, OpenAIEmbeddings())
-    retriever = vector_store.as_retriever()
-    docs = retriever.get_relevant_documents(query)
-    return [tools[d.metadata["index"]] for d in docs]
+    # OpenAI LLM - Logging of LLMChains
+    verbose = False
 
-# String handler for case conversion
-def camel_case(s):
-    s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
-    return ''.join([s[0].lower(), s[1:]])
+    # If None, will keep on going forever
+    max_iterations: Optional[int] = 5
+    baby_agi = BabyAGI.from_llm(
+        llm=llm, vectorstore=vectorstore, verbose=verbose, max_iterations=max_iterations
+    )
+
+    baby_agi({"objective": OBJECTIVE})
+    
 
 if __name__ == "__main__":
     main()

@@ -3,3 +3,4 @@ openai
 wikipedia
 requests
 beautifulsoup4
+faiss-cpu
