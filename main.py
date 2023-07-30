@@ -1,92 +1,139 @@
-from agents.execution_agent import ExecutionAgent
-from agents.context_agent import ContextAgent
-from agents.task_creation_agent import TaskCreationAgent
-from agents.priority_agent import PriorityAgent
-from agents.tool_creation_agent import ToolCreationAgent
-from langchain.agents import AgentExecutor
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.schema import Document
-from langchain.llms import AzureOpenAI
-from re import sub
+# YAGTA - Yet another autonomous task agent - experiments in autonomous GPT agents that learn over time
+# jack@latrobe.group
+
+## main.py - main program loop for YAGTA
+
+# Base Imports
 import os
 import sys
 import logging
+from collections import deque
+from typing import Dict, List, Optional, Any
 
-# Set this to `azure`
-os.getenv("OPENAI_API_TYPE", default="azure")
+# Logging - Initialise
+logging.basicConfig(encoding='utf-8', level=logging.INFO)
 
-# The API version you want to use: set this to `2023-03-15-preview` for the released version.
-os.getenv("OPENAI_API_VERSION", default="2023-03-15-preview")
+# Langchain Imports
+from langchain.chat_models import ChatOpenAI
+from langchain import LLMChain, PromptTemplate, OpenAI
+from langchain.agents import ZeroShotAgent, Tool, AgentExecutor
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.tools import WikipediaQueryRun
+from langchain.utilities import WikipediaAPIWrapper
+from langchain.tools import DuckDuckGoSearchRun
 
-# The base URL for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
-os.getenv("OPENAI_API_BASE", default="https://your-resource-name.openai.azure.com")
+from langchain_experimental.autonomous_agents import BabyAGI
 
-# The API key for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
+
+# Vectorstore - Imports
+from langchain.vectorstores import FAISS
+from langchain.docstore import InMemoryDocstore
+import faiss
+
+# Vectorstore - Configuration
+embeddings_model = OpenAIEmbeddings().embed_query
+embedding_size = 1536
+index = faiss.IndexFlatL2(embedding_size)
+vectorstore = FAISS(embeddings_model, index, InMemoryDocstore({}), {})
+
+# OpenAI LLM - The API key for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
 if "OPENAI_API_KEY" not in os.environ:
-    logging.CRITICAL("Env OPENAI_API_KEY not set - exiting")
+    logging.critical("Env OPENAI_API_KEY not set - exiting")
     sys.exit(1)
 
-# Program main loop
+
+# BabyAGI - Program main loop
 def main():
-    # Establish connection to LLM
-    llm = AzureOpenAI(
-        deployment_name="chat",
-        model_name="gpt-35-turbo",
-        temperature=0.1,
+    # OpenAI LLM - Initialise
+    llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo-16k", max_tokens=2000)
+
+    OBJECTIVE = "What events are on in Melbourne in September 2023?"
+
+
+    # BabyAGI - Define tool functions
+    writing_prompt = PromptTemplate.from_template(
+            "You are a writer given the following task: {objective}\n"
+            "Produce a high quality piece of writing or text that achieves this objective."
+        )
+    writing_chain = LLMChain(llm=llm, prompt=writing_prompt, verbose=True)
+    wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+    duckduckgo = DuckDuckGoSearchRun()
+    todo_prompt = PromptTemplate.from_template(
+    "You are a planner who is an expert at coming up with an ordered, numbered todo list for a given objective in the format:"
+    "1. Look up some information"
+    "2. Do another task using a tool"
+    "3. One more task to do here\n"
+    "Come up with a todo list in the format above for this objective: {objective}"
+    )
+    todo_chain = LLMChain(llm=OpenAI(temperature=0), prompt=todo_prompt)
+
+    # BabyAGI - Define agent tools
+    tools = [
+        Tool(
+            name="Wikipedia Search",
+            func=wikipedia.run,
+            description="useful for searching wikipedia for facts about events, companies or concepts. Input: a search query. Output: search results.",
+        ),
+        Tool(
+            name="DuckDuckGo Search",
+            func=duckduckgo.run,
+            description="useful for searching the internet for information using duckduckgo. Input: a search query. Output: search results",
+        ),
+        Tool(
+            name="Writing Tool",
+            func=writing_chain.run,
+            description="useful for writing other texts. Input: an objective to write about. Output: a piece of writing",
+        ),
+        Tool(
+            name="Planner",
+            func=todo_chain.run,
+            description="Run this tool first. useful for when you need to come up with plan how to achieve an objective. Input: an objective to create a todo list for. Output: a numbered todo list for that objective. Please be very clear what the objective is!",
+        ),
+    ]
+
+    # BabyAGI - Define manager prompts
+    prefix = """You are an AI who performs one task based on the following objective: {objective}. Take into account these previously completed tasks: {context}."""
+    suffix = """Question: {task}
+    {agent_scratchpad}"""
+
+    prompt = ZeroShotAgent.create_prompt(
+        tools,
+        prefix=prefix,
+        suffix=suffix,
+        input_variables=["objective", "task", "context", "agent_scratchpad"],
     )
 
-    # Initialize your agents
-    execution_agent = ExecutionAgent(llm=llm)
-    context_agent = ContextAgent(llm=llm)
-    task_creation_agent = TaskCreationAgent(llm=llm)
-    priority_agent = PriorityAgent(llm=llm)
-    tool_creation_agent = ToolCreationAgent(llm=llm)
+    # BabyAGI - Set up the execution agent
+    llm_chain = LLMChain(llm=llm, prompt=prompt)
+    tool_names = [tool.name for tool in tools]
+    agent = ZeroShotAgent(llm_chain=llm_chain, allowed_tools=tool_names)
+    agent_executor = AgentExecutor.from_agent_and_tools(
+        agent=agent, tools=tools, verbose=True
+    )
 
-    # List of your agents
-    agents = [execution_agent, context_agent, task_creation_agent, priority_agent, tool_creation_agent]
+    # OpenAI LLM - Logging of LLMChains
+    verbose = False
 
-    # Loop through your agent flow
-    keep_working = True
-    while keep_working:
-        current_objective = "This is a test"
-        available_tools = get_tools(current_objective)
-        query = "What should we do to achieve the current objective: {current_objective}".format(current_objective=current_objective)
-        for agent in agents:
-            agent_executor = AgentExecutor.from_agent_and_tools(agent=agent, tools=available_tools, verbose=True)
-            response = agent_executor.run(query)
-            query = response
+    # BabyAGI - Max Iterations, If None, will keep on going forever
+    max_iterations: Optional[int] = None
 
-# Function for dynamically loading any new tools written between each iteration
-def discover_tools():
-    tools = []
-    for directories, subdirectories, files in os.walk("./tools/"):
-        for file in files:
-            base_name = str(file).removesuffix(".py")
-            function_name = camel_case(base_name)
-            try:
-                eval("exec('from tools.{base_name} import {function_name}')".format(base_name=base_name, function_name=function_name))
-                tools.append(eval("{object_name} = {function_name}()".format(object_name=function_name, function_name=function_name)))
-            except Exception as ex:
-                # TODO - Failure to import should raise a task to have ToolCreationAgent re-examine this tools src code
-                pass
-    return tools
+    # BabyAGI - Initialise
+    baby_agi = BabyAGI.from_llm(
+        llm=llm, 
+        vectorstore=vectorstore, 
+        task_execution_chain=agent_executor,
+        verbose=verbose, 
+        max_iterations=max_iterations,
+        handle_parsing_errors="Check your output and formatting!",
+    )
 
-def get_tools(query):
-    tools = discover_tools()
-    docs = [
-            Document(page_content=t.description, metadata={"index": i})
-            for i, t in enumerate(tools)
-        ]
-    vector_store = FAISS.from_documents(docs, OpenAIEmbeddings())
-    retriever = vector_store.as_retriever()
-    docs = retriever.get_relevant_documents(query)
-    return [tools[d.metadata["index"]] for d in docs]
+    # BabyAGI - Run
+    baby_agi({"objective": OBJECTIVE})
 
-# String handler for case conversion
-def camel_case(s):
-    s = sub(r"(_|-)+", " ", s).title().replace(" ", "")
-    return ''.join([s[0].lower(), s[1:]])
+    ## NOTE: KNOWN ISSUE with LangChain's implementation of BabyAGI currently storing duplicate result_ids in vectorstore leading to error and halt:
+    ## https://github.com/langchain-ai/langchain/issues/7445
+    ## Not worth fixing, fix already submitted waiting for merge to main
+    
 
 if __name__ == "__main__":
     main()
