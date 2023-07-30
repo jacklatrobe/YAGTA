@@ -31,8 +31,8 @@ if "OPENAI_API_KEY" not in os.environ:
 def main():
     # Establish connection to LLM
     llm = AzureOpenAI(
-        deployment_name="davinci",
-        model_name="text-davinci-003",
+        deployment_name="chat",
+        model_name="gpt-35-turbo",
         temperature=0.1,
     )
 

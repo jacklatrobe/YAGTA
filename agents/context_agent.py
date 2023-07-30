@@ -8,7 +8,7 @@ import re
 
 
 class ContextAgent(BaseMultiActionAgent):
-    """ContextAgent - Executes tasks using tools"""
+    """ContextAgent - an agent that uses context to answer questions."""
 
     @property
     def input_keys(self):
