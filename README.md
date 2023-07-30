@@ -1,35 +1,65 @@
-# YAGTA - Yet Another GPT Task Agent
+# YAGTA - Yet another autonomous task agent
 
-YAGTA is an open-source project that aims to create an autonomous task agent by combining the innovative approaches of BabyAGI and AutoGPT. It leverages the power of GPT-4 and the modularity of LangChain to build a versatile and powerful language model application.
+YAGTA (Yet another autonomous task agent) is an experimental project that focuses on creating autonomous GPT (Generative Pre-trained Transformer) agents that can learn and improve over time. The goal of YAGTA is to develop an agent that can generate and execute tasks based on given objectives.
 
-## Introduction
+## Getting Started
 
-YAGTA draws inspiration from BabyAGI's approach to creating an autonomous agent with internet access, memory management, and extensibility with plugins. It adopts the concept of an agent that can perform tasks, gather information, and learn from its interactions. This allows YAGTA to interact with the web, manage its short-term and long-term memory, and extend its capabilities with various plugins.
+To get started with YAGTA, follow these steps:
 
-From AutoGPT, YAGTA inherits the idea of using GPT-4 instances for text generation and information summarization. This enables YAGTA to generate human-like text, summarize complex information, and interact with users in a natural and intuitive manner.
+### Prerequisites
 
-Furthermore, YAGTA utilizes LangChain's modular approach to building language model applications. This allows YAGTA to be flexible and adaptable, capable of handling a wide range of tasks and applications. With LangChain's modules, YAGTA can perform tasks such as web searches, file storage, and access to popular websites and platforms.
+- Python 3.7 or higher
+- OpenAI API key
 
-One of the roadmap features of YAGTA is its ability to hopefully use LangChain's libraries to write Python files. This feature is aimed at enabling YAGTA to write and troubleshoot its own LangChain tools. The ultimate goal is for YAGTA to learn to do new things and interact with new systems autonomously, expanding its capabilities over time.
+### Installation
 
-## File structure
-YAGTA/
-├── agents/  # custom Agent classes go here
-│   ├── agent1.py
-│   ├── agent2.py
-│   └── __init__.py
-├── tools/  # custom tools for agents go here
-│   ├── tool1.py
-│   ├── tool2.py
-│   └── __init__.py
-├── main.py  # main file to run the project and program loop
-├── DOCKERFILE # builds a container for the YAGTA app
-└── requirements.txt  # project dependencies
+1. Clone the YAGTA repository from GitHub:
 
-## Quickstart
+```
+git clone https://github.com/your-username/yagta.git
+```
 
-1. Get an OpenAI [API Key](https://platform.openai.com/account/api-keys)
-2. Download the [latest release](https://github.com/jacklatrobe/YAGTA/releases/latest)
-3. Follow the installation instructions in the `docs` folder of the repository
-4. Configure any additional features you want, or install some plugins as described in the `docs` folder
-5. Run the app as per the instructions in the `docs` folder
+2. Navigate to the cloned repository:
+
+```
+cd yagta
+```
+
+3. Install the required dependencies:
+
+```
+pip install -r requirements.txt
+```
+
+### Usage
+
+1. Set up your OpenAI API key:
+
+   - Go to the Azure portal and find your Azure OpenAI resource.
+   - Retrieve your API key.
+
+2. Run the main program loop:
+
+   ```
+   python main.py
+   ```
+
+   This will start the YAGTA agent and execute the tasks based on the given objectives.
+
+## Configuration
+
+YAGTA uses the following components and configurations:
+
+- LangChain: LangChain is a framework that simplifies the creation of applications using large language models (LLMs). It provides tools, components, and interfaces to manage interactions with language models.
+
+- Vectorstore Memory: YAGTA uses VectorStoreRetrieverMemory to store and retrieve memories. It stores previous conversation snippets and uses an in-memory vectorstore for efficient retrieval.
+
+- OpenAI LLM: YAGTA utilizes the OpenAI language model for generating responses and executing tasks. Make sure to set up your OpenAI API key before running YAGTA.
+
+## Contributing
+
+Contributions to YAGTA are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request on the GitHub repository.
+
+## License
+
+YAGTA is released under the [MIT License](https://opensource.org/licenses/MIT).
