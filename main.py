@@ -100,7 +100,8 @@ def main():
     summary_prompt = PromptTemplate.from_template(
                     "You are an AI agent who has been given the following objective: {objective}.\n"
                     "You have performed the following tasks to achieve this objective: {context_list}.\n"
-                    "Write a detailed report that answers the objective, or at least includes an explaination of the tasks and actions taken and a detailed list of actions required to yet achieve the objective.\n"
+                    "Write a detailed response that answers the objective, based only on the information you found while doing the research tasks above\n"
+                    "Be honest about when no information was found or we ran into errors, and be sure to include helpful suggestions or follow up actions for the user"
                 )
     summary_chain = LLMChain(llm=llm, prompt=summary_prompt)
     summary = summary_chain.run(objective=OBJECTIVE, context_list=context_list)
