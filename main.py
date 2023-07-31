@@ -52,18 +52,19 @@ def main():
 
     # BabyAGI - Define tool functions
     writing_prompt = PromptTemplate.from_template(
-            "You are a writer given the following task: {objective}\n"
-            "Produce a high quality piece of writing or text that achieves this objective."
+            "You are a writer given the following task and context: {objective}\n"
+            "Produce a high quality piece of writing or text that achieves this objective, making sure to keep any included context or information in your response."
         )
     writing_chain = LLMChain(llm=llm, prompt=writing_prompt, verbose=True)
     wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
     duckduckgo = DuckDuckGoSearchRun()
     todo_prompt = PromptTemplate.from_template(
-    "You are a planner who is an expert at coming up with an ordered, numbered todo list for a given objective in the format:"
-    "1. Look up some information"
-    "2. Do another task using a tool"
-    "3. One more task to do here\n"
-    "Come up with a todo list in the format above for this objective: {objective}"
+    "You are a planner who is an expert at breaking down objectives into step by step tasks."
+    "You must write all lists of tasks, in priority order, in this format:"
+    "1. Task 1"
+    "2. Task 2"
+    "3. Task 3"
+    "Respond with nothing but a list of tasks that you could follow to do this objective: {objective}"
     )
     todo_chain = LLMChain(llm=OpenAI(temperature=0), prompt=todo_prompt)
 
@@ -87,7 +88,7 @@ def main():
         Tool(
             name="Planner",
             func=todo_chain.run,
-            description="Run this tool first. useful for when you need to come up with plan how to achieve an objective. Input: an objective to create a todo list for. Output: a numbered todo list for that objective. Please be very clear what the objective is!",
+            description="useful for when you need to come up with plan how to achieve an objective. Input: an objective to create a todo list for. Output: a numbered todo list for that objective. Please be very clear what the objective is!",
         ),
     ]
 
