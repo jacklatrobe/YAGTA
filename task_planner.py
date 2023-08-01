@@ -24,7 +24,7 @@ if "OPENAI_API_KEY" not in os.environ:
 # BabyAGI - Program main loop
 def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]:
     # OpenAI LLM - Initialise
-    llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo-16k", max_tokens=2000)
+    llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo", max_tokens=2000)
 
     TASKS = []
 
@@ -33,7 +33,7 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
     iteration = 0
     while loop:
         iteration += 1
-        logging.info(f"task_planner: Planning - Iteration {iteration}")
+        logging.debug(f"task_planner: Planning - Iteration {iteration}")
         if iteration > max_iterations:
             logging.info(f"task_planner: Planning - Max iterations reached, exiting")
             raise RecursionError("task_planner: Max iterations reached")
@@ -51,14 +51,16 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
             plan_response = writing_chain.run(objective=OBJECTIVE, desired_tasks=DESIRED_TASKS)
 
             # Validate JSON from LLM
-            logging.info(f"task_planner: Planning - Plan response: {plan_response}")
+            logging.debug(f"task_planner: Planning - Plan response: {plan_response}")
             json_plan = json.loads(plan_response)
 
             # Explore the plan JSON
             temp_tasks = []
             for task in json_plan:
                 temp_tasks.append({"task_id": task['task_id'],
-                                   "task_description": task['task_description']})
+                                   "task_description": task['task_description'],
+                                   "task_objective": OBJECTIVE,
+                                   "task_status": "pending",})
             TASKS.extend(temp_tasks)
             loop = False
             return TASKS
