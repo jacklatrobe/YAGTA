@@ -40,7 +40,8 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
         try:
             writing_prompt = PromptTemplate.from_template(
                     "You are a expert task planner given the following objective: {objective}\n"
-                    "Return a JSON object with a list of {desired_tasks} tasks an AI agent could perform to achieve this objective.\n"
+                    "Return a JSON object with a list of {desired_tasks} tasks a researcher could perform to achieve this objective.\n"
+                    "The researcher can use tools, such as using search engines or wikipedia, to achieve their task.\n"
                     "Respond only in valid JSON in the following format:\n"
                     "[{{task_id: 1, task_description: 'A description of the task'}},\n"
                     "{{task_id: 2, task_description: 'A description of the task'}}]\n"
@@ -58,9 +59,7 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
             temp_tasks = []
             for task in json_plan:
                 temp_tasks.append({"task_id": task['task_id'],
-                                   "task_description": task['task_description'],
-                                   "task_objective": OBJECTIVE,
-                                   "task_status": "pending",})
+                                   "task_description": task['task_description']})
             TASKS.extend(temp_tasks)
             loop = False
             return TASKS
@@ -72,4 +71,4 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
 
 if __name__ == "__main__":
     TEST_OBJECTIVE = "How do I make a cup of tea?"
-    task_planner()
+    task_planner(TEST_OBJECTIVE)

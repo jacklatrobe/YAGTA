@@ -39,8 +39,8 @@ index = faiss.IndexFlatL2(embedding_size)
 vectorstore = FAISS(embeddings_model, index, InMemoryDocstore({}), {})
 
 # Set Global Variables
-OBJECTIVE = "Compile a detailed report on the intersection of artificial general intelligences, large language models and frameworks such as Reason and Act (ReAct) and LangChain"
-DESIRED_TASKS = 10
+OBJECTIVE = "Write a report that explains how a large language model could combine the capabilities of langchain and search engines to become an autonomous research agent"
+DESIRED_TASKS = 8
 MAX_TASK_RESULTS = 5
 
 # Global Task List
@@ -52,7 +52,7 @@ from task_planner import task_planner
 # Task Execution Function
 def execute_task(agent_chain, vectorstore, TASK):
     logging.debug(f"main: Executing Task: {TASK}")
-    result = agent_chain.run(input=f"Use your tools to achieve this task - you may need to use a tool multiple times with different search terms or key words to get enough information: {TASK['task_description']}")
+    result = agent_chain.run(input=f"Use your tools to achieve this task - you may need to try to use multiple tools, different search terms, or add new tasks for later investigation or follow-up to complete this task: {TASK['task_description']}")
 
     vectorstore.add_texts(
         texts=[result],
@@ -70,7 +70,6 @@ def add_new_pending_task(OBJECTIVE, task_description: str):
         return f"New task added successfully added to the queue: {task_description}"
     except Exception as ex:
         return f"Error adding new task: {str(ex)}"
-
 
 # Define toolset
 TOOLS = [
@@ -95,10 +94,11 @@ def main():
     # Establish LLM
     agent_llm = ChatOpenAI(temperature=0.3, model="gpt-3.5-turbo-16k", max_tokens=4000)
     memory_llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo", max_tokens=1000)
+
     # Create initial plan
     try:
         for TASK in task_planner(OBJECTIVE, DESIRED_TASKS):
-            TASKS.insert(TASK["task_id"], TASK)
+            add_new_pending_task(OBJECTIVE, TASK['task_description'])
     except RecursionError as rEx:
         logging.critical(f"main: Planner reached max iterations attempting to generate valid JSON plan for objective: {rEx}")
         sys.exit(1)
