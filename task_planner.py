@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Any
 # Langchain Imports
 from langchain.chat_models import ChatOpenAI
 from langchain import LLMChain, PromptTemplate
+from langchain.vectorstores import FAISS
 
 # OpenAI LLM - The API key for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
 if "OPENAI_API_KEY" not in os.environ:
@@ -22,11 +23,16 @@ if "OPENAI_API_KEY" not in os.environ:
 
 
 # BabyAGI - Program main loop
-def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]:
+def task_planner(vectorstore: FAISS, OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]:
     # OpenAI LLM - Initialise
     llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo", max_tokens=2000)
+    # Pull most relevant task results from Vectorstore
+    MAX_TASK_RESULTS = 10
 
-    TASKS = []
+    task_results = vectorstore.similarity_search(OBJECTIVE, k=MAX_TASK_RESULTS)
+    context_list = "\n - ".join(task.page_content for task in task_results)
+    
+    PLANNED_TASKS = []
 
     max_iterations = 10
     loop = True
@@ -40,8 +46,9 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
         try:
             writing_prompt = PromptTemplate.from_template(
                 "You are a expert task planner given the following objective: {OBJECTIVE}\n"
-                "Return a JSON object with a list of {DESIRED_TASKS} tasks a researcher could perform to achieve this objective.\n"
-                "The researcher can use tools, such as using search engines or wikipedia, to achieve their task.\n"
+                "You've previously completed a number of tasks and have the following context:\n{CONTEXT}\n\n"
+                "Return a JSON object with a list of {DESIRED_TASKS} tasks that a researcher could do to gather background on this objective.\n"
+                "The researcher can use the internet to achieve their task.\n"
                 "Respond only in valid JSON in the following format:\n"
                 "[{{task_id: 1, task_description: 'A description of the task'}},\n"
                 "{{task_id: 2, task_description: 'A description of the task'}}]\n"
@@ -50,7 +57,9 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
 
             # Run planning chain
             plan_response = writing_chain.run(
-                OBJECTIVE=OBJECTIVE, DESIRED_TASKS=DESIRED_TASKS
+                CONTEXT=context_list,
+                OBJECTIVE=OBJECTIVE, 
+                DESIRED_TASKS=DESIRED_TASKS
             )
 
             # Validate JSON from LLM
@@ -66,9 +75,9 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
                         "task_description": task["task_description"],
                     }
                 )
-            TASKS.extend(temp_tasks)
+            PLANNED_TASKS.extend(temp_tasks)
             loop = False
-            return TASKS
+            return PLANNED_TASKS
         except ValueError as ex:
             logging.error(f"task_planner: Error: {ex}")
             # If the LLM returns invalid JSON, we loop and try again until max iterations is reached
@@ -77,7 +86,3 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
         "task_planner: Task planner failed to return a valid plan"
     )
 
-
-if __name__ == "__main__":
-    TEST_OBJECTIVE = "How do I make a cup of tea?"
-    task_planner(TEST_OBJECTIVE)
