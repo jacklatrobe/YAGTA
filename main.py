@@ -4,9 +4,10 @@
 ## main.py - main program loop for YAGTA
 
 # Base Imports
-import os
+import json
 import sys
 import logging
+import threading
 from collections import deque
 from typing import Dict, List, Optional, Any
 
@@ -14,16 +15,16 @@ from typing import Dict, List, Optional, Any
 logging.basicConfig(encoding='utf-8', level=logging.INFO)
 
 # Langchain Imports
+from langchain.agents import AgentType
+from langchain.memory import ConversationSummaryBufferMemory
+from langchain.agents import initialize_agent
 from langchain.chat_models import ChatOpenAI
-from langchain import LLMChain, PromptTemplate, OpenAI
-from langchain.agents import ZeroShotAgent, Tool, AgentExecutor
+from langchain import LLMChain, PromptTemplate
+from langchain.agents import Tool
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.tools import WikipediaQueryRun
 from langchain.utilities import WikipediaAPIWrapper
 from langchain.tools import DuckDuckGoSearchRun
-
-from langchain_experimental.autonomous_agents import BabyAGI
-
 
 # Vectorstore - Imports
 from langchain.vectorstores import FAISS
@@ -31,109 +32,169 @@ from langchain.docstore import InMemoryDocstore
 import faiss
 
 # Vectorstore - Configuration
-embeddings_model = OpenAIEmbeddings().embed_query
+embeddings_model = OpenAIEmbeddings()
 embedding_size = 1536
 index = faiss.IndexFlatL2(embedding_size)
-vectorstore = FAISS(embeddings_model, index, InMemoryDocstore({}), {})
+vectorstore = FAISS(embeddings_model.embed_query, index, InMemoryDocstore({}), {})
+try:
+    previous_vectors = FAISS.load_local("yagta_index", embeddings_model)
+    vectorstore.merge_from(previous_vectors)
+    logging.info("main: Loaded previous vectors")
+except RuntimeError as rEx:
+    logging.warning(f"main: Unable to load previous vectors: {rEx}")
 
-# OpenAI LLM - The API key for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
-if "OPENAI_API_KEY" not in os.environ:
-    logging.critical("Env OPENAI_API_KEY not set - exiting")
-    sys.exit(1)
+# Set Global Variables
+INITIAL_OBJECTIVE = "Research good document formatting standards, how to write interview guides, and hiring process best practices. Each task you do is saved as a unique research result, so generate lots of tasks and suggest any follow up actions in the descriptions."
+DESIRED_TASKS = 4
+MAX_TASK_RESULTS = 7
 
+# Global Task List
+TASKS = []
 
-# BabyAGI - Program main loop
-def main():
-    # OpenAI LLM - Initialise
-    llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo-16k", max_tokens=2000)
+# YAGTA Imports
+from task_planner import task_planner
 
-    OBJECTIVE = "What events are on in Melbourne in September 2023?"
+# Task Execution Function
+def execute_task(agent_chain, vectorstore, TASK):
+    logging.debug(f"main: Executing Task: {TASK}")
+    result = agent_chain.run(input=f"Use your tools to achieve this task - you may need to try to use multiple tools, different search terms, or add new tasks for later investigation or follow-up to complete this task: {TASK['task_description']}")
 
-
-    # BabyAGI - Define tool functions
-    writing_prompt = PromptTemplate.from_template(
-            "You are a writer given the following task: {objective}\n"
-            "Produce a high quality piece of writing or text that achieves this objective."
-        )
-    writing_chain = LLMChain(llm=llm, prompt=writing_prompt, verbose=True)
-    wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
-    duckduckgo = DuckDuckGoSearchRun()
-    todo_prompt = PromptTemplate.from_template(
-    "You are a planner who is an expert at coming up with an ordered, numbered todo list for a given objective in the format:"
-    "1. Look up some information"
-    "2. Do another task using a tool"
-    "3. One more task to do here\n"
-    "Come up with a todo list in the format above for this objective: {objective}"
-    )
-    todo_chain = LLMChain(llm=OpenAI(temperature=0), prompt=todo_prompt)
-
-    # BabyAGI - Define agent tools
-    tools = [
-        Tool(
-            name="Wikipedia Search",
-            func=wikipedia.run,
-            description="useful for searching wikipedia for facts about events, companies or concepts. Input: a search query. Output: search results.",
-        ),
-        Tool(
-            name="DuckDuckGo Search",
-            func=duckduckgo.run,
-            description="useful for searching the internet for information using duckduckgo. Input: a search query. Output: search results",
-        ),
-        Tool(
-            name="Writing Tool",
-            func=writing_chain.run,
-            description="useful for writing other texts. Input: an objective to write about. Output: a piece of writing",
-        ),
-        Tool(
-            name="Planner",
-            func=todo_chain.run,
-            description="Run this tool first. useful for when you need to come up with plan how to achieve an objective. Input: an objective to create a todo list for. Output: a numbered todo list for that objective. Please be very clear what the objective is!",
-        ),
-    ]
-
-    # BabyAGI - Define manager prompts
-    prefix = """You are an AI who performs one task based on the following objective: {objective}. Take into account these previously completed tasks: {context}."""
-    suffix = """Question: {task}
-    {agent_scratchpad}"""
-
-    prompt = ZeroShotAgent.create_prompt(
-        tools,
-        prefix=prefix,
-        suffix=suffix,
-        input_variables=["objective", "task", "context", "agent_scratchpad"],
+    vectorstore.add_texts(
+        texts=[result],
+        metadatas=[{"task_description": TASK["task_description"],
+                    "task_status": TASK["task_status"],}],
+        ids=[TASK["task_id"]],
     )
 
-    # BabyAGI - Set up the execution agent
-    llm_chain = LLMChain(llm=llm, prompt=prompt)
-    tool_names = [tool.name for tool in tools]
-    agent = ZeroShotAgent(llm_chain=llm_chain, allowed_tools=tool_names)
-    agent_executor = AgentExecutor.from_agent_and_tools(
-        agent=agent, tools=tools, verbose=True
+# Function - Adds new pending tasks to TASKS array
+def add_new_pending_task(OBJECTIVE, task_description: str):
+    logging.info(f"main: Adding new pending task: {task_description}")
+    try:
+        index = len(TASKS)
+        results_with_scores = vectorstore.similarity_search_with_score(task_description)
+        for doc, score in results_with_scores:
+            if score > 0.95:
+                logging.debug(f"main: Similar task already exists in TASKS list, skipping: {task_description}")
+                return f"Task already exists in TASKS list, skipping: {task_description}"
+            else:
+                TASKS.insert(index, {"task_id": index, "task_description": task_description, "task_objective": OBJECTIVE, "task_status": "pending"})
+                return f"New task added successfully added to the queue: {task_description}"
+    except Exception as ex:
+        return f"Error adding new task: {str(ex)}"
+
+# Define toolset
+TOOLS = [
+    Tool(
+        name="Search Wikipedia",
+        func=WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()),
+        description="useful for searching wikipedia for facts about companies, places and famous people. Input should be two or three keywords to search for.",
+    ),
+    Tool(
+        name="Search DuckDuckGo",
+        func=DuckDuckGoSearchRun(),
+        description="useful for searching the internet for news, websites, answers and general knowledge. Input should be a search term or query to search for.",
+    ),
+    Tool(
+        name="Dispatch New Task",
+        func=lambda desc: add_new_pending_task(OBJECTIVE, desc),
+        description="useful for adding a new task for later when another tool doesn't work or you can't find what you need . Input should be a description of the next task for you to complete to progress the objective.",
     )
+]
 
-    # OpenAI LLM - Logging of LLMChains
-    verbose = False
+def main(OBJECTIVE: str):
+    # Establish LLM
+    agent_llm = ChatOpenAI(temperature=0.3, model="gpt-3.5-turbo-16k", max_tokens=4000)
+    memory_llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo", max_tokens=1000)
 
-    # BabyAGI - Max Iterations, If None, will keep on going forever
-    max_iterations: Optional[int] = None
+    # Create initial plan
+    #try:
+    for TASK in task_planner(OBJECTIVE, DESIRED_TASKS):
+        add_new_pending_task(OBJECTIVE, TASK['task_description'])
+    # except RecursionError as rEx:
+    #     logging.critical(f"main: Planner reached max iterations attempting to generate valid JSON plan for objective: {rEx}")
+    #     sys.exit(1)
+    # except Exception as ex:
+    #     logging.critical(f"main: Planner encountered an unknown error while trying to generate initial plan for objective: {ex}")
+    #     sys.exit(1)
 
-    # BabyAGI - Initialise
-    baby_agi = BabyAGI.from_llm(
-        llm=llm, 
-        vectorstore=vectorstore, 
-        task_execution_chain=agent_executor,
-        verbose=verbose, 
-        max_iterations=max_iterations,
-        handle_parsing_errors="Check your output and formatting!",
+    # Create Agent Chain
+    memory = ConversationSummaryBufferMemory(
+        llm=memory_llm, max_token_limit=250, return_messages=True, memory_key = "chat_history"
     )
+    agent_chain = initialize_agent(
+        TOOLS, 
+        agent_llm, 
+        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, 
+        memory=memory,
+        handle_parsing_errors="Error from OpenAI - check your response formatting and try again.")
+    # Main program loop - executes pending TASKS in a thread
+    while len([task for task in TASKS if task["task_status"] == "pending"]) > 0:
+        logging.info(f"main: Pending tasks detected, starting new task execution iteration")
+        ## Start task threads - WHY ARE MY INDEXES OUT OF SYNC
+        task_threads = {}
+        for TASK in [task for task in TASKS if task["task_status"] == "pending"]:
+            index = int(TASK["task_id"])
+            logging.info(f"main: Starting new task thread for task ID: {index}")
+            x = threading.Thread(target=execute_task, args=(agent_chain, vectorstore, TASK,))
+            task_threads[index] = x
+            x.start()
+            TASKS[index]["task_status"] = "running"
+        
+        ## Wait for task threads to finish
+        for TASK in [task for task in TASKS if task["task_status"] == "running"]:
+            index = int(TASK["task_id"])
+            task_threads[index].join()
+            TASKS[index]["task_status"] = "complete"
+            logging.info(f"main: Thread {index} has finished executing task")
 
-    # BabyAGI - Run
-    baby_agi({"objective": OBJECTIVE})
+    # Pull most relevant task results from Vectorstore
+    task_results = vectorstore.similarity_search(OBJECTIVE, k=MAX_TASK_RESULTS)
+    context_list = "\n - ".join(task.page_content for task in task_results)
+     
+    # Generate summary of task results
+    summary_prompt = PromptTemplate.from_template(
+                    "You are an AI agent who has been given the following objective: {objective}.\n"
+                    "You have performed the following tasks to achieve this objective: {context_list}.\n"
+                    "Write a detailed response that answers the objective, based only on the information you found while doing the research tasks above\n"
+                    "Be honest about when no information was found or where we ran into errors, and be sure to include helpful suggestions or follow up actions for the user"
+                )
+    summary_chain = LLMChain(llm=agent_llm, prompt=summary_prompt)
+    summary = summary_chain.run(objective=OBJECTIVE, context_list=context_list)
 
-    ## NOTE: KNOWN ISSUE with LangChain's implementation of BabyAGI currently storing duplicate result_ids in vectorstore leading to error and halt:
-    ## https://github.com/langchain-ai/langchain/issues/7445
-    ## Not worth fixing, fix already submitted waiting for merge to main
-    
+    # Save vectorstore to disk for next YAGTA run
+    vectorstore.save_local("yagta_index")
+
+    # Check the summary meets the objective, or loop again
+    objective_prompt = PromptTemplate.from_template(
+                    "An AI agent was given the following objective: {OBJECTIVE}\n\n"
+                    "It generated this response: {response}.\n\n"
+                    "Assess the response against the objective and respond with only one of the following JSON responses:\n"
+                    '{{"assessment": "complete"}} or {{"assessment": "incomplete", "new_objective": "new objective or follow up action needed to generate better response"}}\n'
+                    "Remember to respond with ONLY JSON in your response"
+                )
+    objective_chain = LLMChain(llm=agent_llm, prompt=objective_prompt)
+    check_objective = objective_chain.run(OBJECTIVE=OBJECTIVE, response=summary)
+    try:
+        check_result = json.loads(check_objective)
+        if check_result["assessment"] == "complete":
+            logging.info(f"main: ending loop with final summary")
+            return summary
+        else:
+            OBJECTIVE = check_result["new_objective"]
+            logging.info(f"main: restarting loop with new objective: {OBJECTIVE}")
+            return False
+    except Exception as ex:
+        logging.warning(f"main: Error parsing objective check response: {ex}")
+        return summary
+
 
 if __name__ == "__main__":
-    main()
+    loop = True
+    OBJECTIVE = INITIAL_OBJECTIVE
+    while loop:
+        result = main(OBJECTIVE)
+        if result:
+            print(result)
+            break
+        else:
+            OBJECTIVE = result
