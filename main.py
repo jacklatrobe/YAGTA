@@ -44,7 +44,7 @@ except RuntimeError as rEx:
     logging.warning(f"main: Unable to load previous vectors: {rEx}")
 
 # Set Global Variables
-INITIAL_OBJECTIVE = "Conduct research into LangChain, LLMs, the Reason and Act Framework, and secondbrain theory. Each task you do is saved as a unique research result, so generate lots of tasks and suggest any follow up actions in the descriptions."
+INITIAL_OBJECTIVE = "Conduct research into LangChain, LLMs, the Reason and Act (ReAct) Framework, and secondbrain theory. Each task you do is saved as a unique research result, so generate lots of tasks and suggest any follow up actions in the descriptions."
 DESIRED_TASKS = 4
 MAX_TASK_RESULTS = 7
 
@@ -169,16 +169,18 @@ def main(OBJECTIVE: str):
                     "An AI agent was given the following objective: {OBJECTIVE}\n\n"
                     "It generated this response: {response}.\n\n"
                     "Assess the response against the objective and respond with only one of the following JSON responses:\n"
-                    "{{assessment: 'complete'}} or {{assessment: 'incomplete', new_objective: 'new objective to generate better response'}}\n"
+                    "{{assessment: 'complete'}} or {{assessment: 'incomplete', new_objective: 'new objective or follow up action needed to generate better response'}}\n"
                 )
     objective_chain = LLMChain(llm=agent_llm, prompt=objective_prompt)
     check_objective = objective_chain.run(OBJECTIVE=OBJECTIVE, response=summary)
     try:
         check_result = json.loads(check_objective)
         if check_result["assessment"] == "complete":
+            logging.info(f"main: ending loop with final summary")
             return summary
         else:
             OBJECTIVE = check_result["new_objective"]
+            logging.info(f"main: restarting loop with new objective: {OBJECTIVE}")
             return False
     except Exception as ex:
         logging.warning(f"main: Error parsing objective check response: {ex}")
