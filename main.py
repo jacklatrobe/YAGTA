@@ -4,11 +4,10 @@
 ## main.py - main program loop for YAGTA
 
 # Base Imports
-import os
+import json
 import sys
 import logging
 import threading
-import time
 from collections import deque
 from typing import Dict, List, Optional, Any
 
@@ -20,8 +19,8 @@ from langchain.agents import AgentType
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain.agents import initialize_agent
 from langchain.chat_models import ChatOpenAI
-from langchain import LLMChain, PromptTemplate, OpenAI
-from langchain.agents import ZeroShotAgent, Tool, AgentExecutor
+from langchain import LLMChain, PromptTemplate
+from langchain.agents import Tool
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.tools import WikipediaQueryRun
 from langchain.utilities import WikipediaAPIWrapper
@@ -33,15 +32,21 @@ from langchain.docstore import InMemoryDocstore
 import faiss
 
 # Vectorstore - Configuration
-embeddings_model = OpenAIEmbeddings().embed_query
+embeddings_model = OpenAIEmbeddings()
 embedding_size = 1536
 index = faiss.IndexFlatL2(embedding_size)
-vectorstore = FAISS(embeddings_model, index, InMemoryDocstore({}), {})
+vectorstore = FAISS(embeddings_model.embed_query, index, InMemoryDocstore({}), {})
+try:
+    previous_vectors = FAISS.load_local("yagta_index", embeddings_model)
+    vectorstore.merge_from(previous_vectors)
+    logging.info("main: Loaded previous vectors")
+except RuntimeError as rEx:
+    logging.warning(f"main: Unable to load previous vectors: {rEx}")
 
 # Set Global Variables
-OBJECTIVE = "Write a report that explains how a large language model could combine the capabilities of langchain and search engines to become an autonomous research agent"
-DESIRED_TASKS = 8
-MAX_TASK_RESULTS = 5
+INITIAL_OBJECTIVE = "Conduct research into LangChain, LLMs, the Reason and Act Framework, and secondbrain theory. Each task you do is saved as a unique research result, so generate lots of tasks and suggest any follow up actions in the descriptions."
+DESIRED_TASKS = 4
+MAX_TASK_RESULTS = 7
 
 # Global Task List
 TASKS = []
@@ -61,13 +66,19 @@ def execute_task(agent_chain, vectorstore, TASK):
         ids=[TASK["task_id"]],
     )
 
-# Add New Task Function
+# Function - Adds new pending tasks to TASKS array
 def add_new_pending_task(OBJECTIVE, task_description: str):
     logging.info(f"main: Adding new pending task: {task_description}")
     try:
         index = len(TASKS)
-        TASKS.insert(index, {"task_id": index, "task_description": task_description, "task_objective": OBJECTIVE, "task_status": "pending"})
-        return f"New task added successfully added to the queue: {task_description}"
+        results_with_scores = vectorstore.similarity_search_with_score(task_description)
+        for doc, score in results_with_scores:
+            if score > 0.95:
+                logging.debug(f"main: Similar task already exists in TASKS list, skipping: {task_description}")
+                return f"Task already exists in TASKS list, skipping: {task_description}"
+            else:
+                TASKS.insert(index, {"task_id": index, "task_description": task_description, "task_objective": OBJECTIVE, "task_status": "pending"})
+                return f"New task added successfully added to the queue: {task_description}"
     except Exception as ex:
         return f"Error adding new task: {str(ex)}"
 
@@ -90,44 +101,50 @@ TOOLS = [
     )
 ]
 
-def main():
+def main(OBJECTIVE: str):
     # Establish LLM
     agent_llm = ChatOpenAI(temperature=0.3, model="gpt-3.5-turbo-16k", max_tokens=4000)
     memory_llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo", max_tokens=1000)
 
     # Create initial plan
-    try:
-        for TASK in task_planner(OBJECTIVE, DESIRED_TASKS):
-            add_new_pending_task(OBJECTIVE, TASK['task_description'])
-    except RecursionError as rEx:
-        logging.critical(f"main: Planner reached max iterations attempting to generate valid JSON plan for objective: {rEx}")
-        sys.exit(1)
-    except Exception as ex:
-        logging.critical(f"main: Planner encountered an unknown error while trying to generate initial plan for objective: {ex}")
-        sys.exit(1)
+    #try:
+    for TASK in task_planner(OBJECTIVE, DESIRED_TASKS):
+        add_new_pending_task(OBJECTIVE, TASK['task_description'])
+    # except RecursionError as rEx:
+    #     logging.critical(f"main: Planner reached max iterations attempting to generate valid JSON plan for objective: {rEx}")
+    #     sys.exit(1)
+    # except Exception as ex:
+    #     logging.critical(f"main: Planner encountered an unknown error while trying to generate initial plan for objective: {ex}")
+    #     sys.exit(1)
 
     # Create Agent Chain
     memory = ConversationSummaryBufferMemory(
         llm=memory_llm, max_token_limit=250, return_messages=True, memory_key = "chat_history"
     )
-    agent_chain = initialize_agent(TOOLS, agent_llm, agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, memory=memory)
+    agent_chain = initialize_agent(
+        TOOLS, 
+        agent_llm, 
+        agent=AgentType.CHAT_CONVERSATIONAL_REACT_DESCRIPTION, 
+        memory=memory,
+        handle_parsing_errors="Error from OpenAI - check your response formatting and try again.")
+    # Main program loop - executes pending TASKS in a thread
     while len([task for task in TASKS if task["task_status"] == "pending"]) > 0:
         logging.info(f"main: Pending tasks detected, starting new task execution iteration")
-    # Start task threads
-        task_threads = []
+        ## Start task threads - WHY ARE MY INDEXES OUT OF SYNC
+        task_threads = {}
         for TASK in [task for task in TASKS if task["task_status"] == "pending"]:
             index = int(TASK["task_id"])
             logging.info(f"main: Starting new task thread for task ID: {index}")
             x = threading.Thread(target=execute_task, args=(agent_chain, vectorstore, TASK,))
-            task_threads.insert(index, x)
+            task_threads[index] = x
             x.start()
-            TASKS[index-1]["task_status"] = "running"
+            TASKS[index]["task_status"] = "running"
         
-        # Wait for task threads to finish
+        ## Wait for task threads to finish
         for TASK in [task for task in TASKS if task["task_status"] == "running"]:
             index = int(TASK["task_id"])
-            task_threads[index-1].join()
-            TASKS[index-1]["task_status"] = "complete"
+            task_threads[index].join()
+            TASKS[index]["task_status"] = "complete"
             logging.info(f"main: Thread {index} has finished executing task")
 
     # Pull most relevant task results from Vectorstore
@@ -143,8 +160,38 @@ def main():
                 )
     summary_chain = LLMChain(llm=agent_llm, prompt=summary_prompt)
     summary = summary_chain.run(objective=OBJECTIVE, context_list=context_list)
-    print(summary)
+
+    # Save vectorstore to disk for next YAGTA run
+    vectorstore.save_local("yagta_index")
+
+    # Check the summary meets the objective, or loop again
+    objective_prompt = PromptTemplate.from_template(
+                    "An AI agent was given the following objective: {OBJECTIVE}\n\n"
+                    "It generated this response: {response}.\n\n"
+                    "Assess the response against the objective and respond with only one of the following JSON responses:\n"
+                    "{{assessment: 'complete'}} or {{assessment: 'incomplete', new_objective: 'new objective to generate better response'}}\n"
+                )
+    objective_chain = LLMChain(llm=agent_llm, prompt=objective_prompt)
+    check_objective = objective_chain.run(OBJECTIVE=OBJECTIVE, response=summary)
+    try:
+        check_result = json.loads(check_objective)
+        if check_result["assessment"] == "complete":
+            return summary
+        else:
+            OBJECTIVE = check_result["new_objective"]
+            return False
+    except Exception as ex:
+        logging.warning(f"main: Error parsing objective check response: {ex}")
+        return summary
 
 
 if __name__ == "__main__":
-    main()
+    loop = True
+    OBJECTIVE = INITIAL_OBJECTIVE
+    while loop:
+        result = main(OBJECTIVE)
+        if result:
+            print(result)
+            break
+        else:
+            OBJECTIVE = result

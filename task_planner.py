@@ -39,17 +39,19 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
             raise RecursionError("task_planner: Max iterations reached")
         try:
             writing_prompt = PromptTemplate.from_template(
-                    "You are a expert task planner given the following objective: {objective}\n"
-                    "Return a JSON object with a list of {desired_tasks} tasks a researcher could perform to achieve this objective.\n"
-                    "The researcher can use tools, such as using search engines or wikipedia, to achieve their task.\n"
-                    "Respond only in valid JSON in the following format:\n"
-                    "[{{task_id: 1, task_description: 'A description of the task'}},\n"
-                    "{{task_id: 2, task_description: 'A description of the task'}}]\n"
-                )
+                "You are a expert task planner given the following objective: {OBJECTIVE}\n"
+                "Return a JSON object with a list of {DESIRED_TASKS} tasks a researcher could perform to achieve this objective.\n"
+                "The researcher can use tools, such as using search engines or wikipedia, to achieve their task.\n"
+                "Respond only in valid JSON in the following format:\n"
+                "[{{task_id: 1, task_description: 'A description of the task'}},\n"
+                "{{task_id: 2, task_description: 'A description of the task'}}]\n"
+            )
             writing_chain = LLMChain(llm=llm, prompt=writing_prompt)
 
             # Run planning chain
-            plan_response = writing_chain.run(objective=OBJECTIVE, desired_tasks=DESIRED_TASKS)
+            plan_response = writing_chain.run(
+                OBJECTIVE=OBJECTIVE, DESIRED_TASKS=DESIRED_TASKS
+            )
 
             # Validate JSON from LLM
             logging.debug(f"task_planner: Planning - Plan response: {plan_response}")
@@ -58,8 +60,12 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
             # Explore the plan JSON
             temp_tasks = []
             for task in json_plan:
-                temp_tasks.append({"task_id": task['task_id'],
-                                   "task_description": task['task_description']})
+                temp_tasks.append(
+                    {
+                        "task_id": task["task_id"],
+                        "task_description": task["task_description"],
+                    }
+                )
             TASKS.extend(temp_tasks)
             loop = False
             return TASKS
@@ -67,7 +73,10 @@ def task_planner(OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]
             logging.error(f"task_planner: Error: {ex}")
             # If the LLM returns invalid JSON, we loop and try again until max iterations is reached
             continue
-    raise NotImplementedError("task_planner: Task planner failed to return a valid plan")
+    raise NotImplementedError(
+        "task_planner: Task planner failed to return a valid plan"
+    )
+
 
 if __name__ == "__main__":
     TEST_OBJECTIVE = "How do I make a cup of tea?"

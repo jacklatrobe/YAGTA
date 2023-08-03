@@ -163,3 +163,7 @@ cython_debug/
 # Semantic cache
 similar_cache*
 similar_cache*/*
+
+# Vectorstore cache
+yagta_index*
+yagta_index*/*
