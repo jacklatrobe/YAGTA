@@ -16,7 +16,7 @@ import html2text
 from langchain.document_transformers import Html2TextTransformer
 
 # Logging - Initialise
-logging.basicConfig(encoding='utf-8', level=logging.DEBUG, filename="yagta.log")
+logging.basicConfig(encoding='utf-8', level=logging.INFO, filename="yagta.log")
 
 # Langchain Imports
 from langchain.agents import AgentType
@@ -41,7 +41,7 @@ import faiss
 from task_planner import task_planner
 
 # Set Global Variables
-INITIAL_OBJECTIVE: str = "You are an AI agent that can learn over time. So, learn. Grow. Tell me how to improve you in a new way."
+INITIAL_OBJECTIVE: str = "Learn everything you can about writing LangChain, using OpenAIs APIs and leveraging Large Language Models to build autonomous agents."
 DESIRED_TASKS: int = 4
 MAX_TASK_RESULTS: int = 7
 SIMILAR_TASK_SCORE: float = 0.75
@@ -83,7 +83,7 @@ def get_url_content(url: str) -> str:
 
 # Task Execution Function
 def execute_task(agent_llm: ChatOpenAI, memory_llm: ChatOpenAI, vectorstore: FAISS, TASK: dict) -> None:
-    logging.debug(f"execute_task: Executing Task {TASK['task_id']}")
+    logging.info(f"execute_task: Executing Task {TASK['task_id']} - {TASK['task_description']}")
 
     agent_chain = initialize_agent(
         TOOLS, 
@@ -104,11 +104,11 @@ def execute_task(agent_llm: ChatOpenAI, memory_llm: ChatOpenAI, vectorstore: FAI
 
 # Function - Adds new pending tasks to TASKS array
 def add_new_pending_task(vectorstore: FAISS, OBJECTIVE: str, task_description: str) -> str:
-    logging.info(f"add_new_pending_task: Adding new pending task: {task_description}")
     try:
         index = len(TASKS)
         results_with_scores = vectorstore.similarity_search_with_score(task_description)
-        logging.info(f"add_new_pending_task: Similarity search results for {task_description}: {results_with_scores}")
+        logging.info(f"add_new_pending_task: {len(results_with_scores)} similarity search results returned for {task_description}.")
+        logging.debug(f"add_new_pending_task: Similarity search results: {results_with_scores}")
         for doc, score in results_with_scores:
             if score > SIMILAR_TASK_SCORE:
                 logging.info(f"add_new_pending_task: Similar task already exists in TASKS list, skipping: {task_description}")
@@ -196,7 +196,8 @@ def execute_objective(OBJECTIVE: str) -> list:
     for TASK in [task for task in TASKS if task["task_status"] == "complete" and task["task_objective"] == OBJECTIVE]:
         task_description = TASK["task_description"]
         task_context = vectorstore.similarity_search(task_description, k=MAX_TASK_RESULTS)
-        logging.info(f"execute_objective: Similarity search results for {task_description}: {task_context}")
+        logging.info(f"execute_objective: {len(task_context)} similarity search results returned for {task_description}.")
+        logging.debug(f"execute_objective: Similarity search results: {task_context}")
         task_results.append(task_context)
     context_list = "\n - ".join(task_results)
      
