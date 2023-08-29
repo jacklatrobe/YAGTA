@@ -8,8 +8,7 @@ import os
 import sys
 import logging
 import json
-from collections import deque
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any
 
 # Langchain Imports
 from langchain.chat_models import ChatOpenAI
@@ -18,14 +17,14 @@ from langchain.vectorstores import FAISS
 
 # OpenAI LLM - The API key for your Azure OpenAI resource.  You can find this in the Azure portal under your Azure OpenAI resource.
 if "OPENAI_API_KEY" not in os.environ:
-    logging.critical("task_planner: Env OPENAI_API_KEY not set")
+    logging.critical("main: Env OPENAI_API_KEY not set")
     raise ValueError("Env OPENAI_API_KEY not set")
 
 
 # BabyAGI - Program main loop
 def task_planner(vectorstore: FAISS, OBJECTIVE: str, DESIRED_TASKS: int = 3) -> List[Dict[str, Any]]:
     # OpenAI LLM - Initialise
-    llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo", max_tokens=2000)
+    llm = ChatOpenAI(temperature=0.1, model="gpt-3.5-turbo-0613", max_tokens=2000)
     # Pull most relevant task results from Vectorstore
     MAX_TASK_RESULTS = 10
 
