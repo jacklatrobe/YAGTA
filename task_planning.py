@@ -41,9 +41,9 @@ def task_planner(LLM: ChatOpenAI, VECTORSTORE: FAISS, OBJECTIVE: str, TOOLS: lis
         try:
             writing_prompt = PromptTemplate.from_template(
                 "You are a expert task planner given the following objective: {OBJECTIVE}\n"
-                "You've previously completed a number of tasks and have the following context:\n{CONTEXT}\n\n"
+                "You've previously completed these relevant tasks, among others:\n{CONTEXT}\n\n"
                 "Return a JSON object with a list of tasks that a researcher could do to gather background on this objective.\n"
-                "The researcher can use the internet to achieve their task.\n"
+                "The researcherhas access to the following tools to achieve their tasks:\n{TOOLS}"
                 "Respond only in valid JSON in the following format:\n"
                 "[{{task_description: 'A description of the task'}},\n"
                 "{{task_description: 'A description of the next task'}}]\n"
@@ -53,7 +53,8 @@ def task_planner(LLM: ChatOpenAI, VECTORSTORE: FAISS, OBJECTIVE: str, TOOLS: lis
             # Run planning chain
             plan_response = writing_chain.run(
                 CONTEXT=context_list,
-                OBJECTIVE=OBJECTIVE
+                OBJECTIVE=OBJECTIVE,
+                TOOLS=TOOLS,
             )
 
             # Validate JSON from LLM
@@ -70,12 +71,10 @@ def task_planner(LLM: ChatOpenAI, VECTORSTORE: FAISS, OBJECTIVE: str, TOOLS: lis
                         )
                 )
             PLANNED_TASKS.extend(temp_tasks)
-            break
+            return PLANNED_TASKS
         except ValueError as ex:
             logging.error(f"task_planner: Error: {ex}")
             # If the LLM returns invalid JSON, we loop and try again until max iterations is reached
             continue
-
-    assert len(PLANNED_TASKS) > 1    
-    return PLANNED_TASKS
+    assert False, "task_planner: Unable to plan tasks"
 

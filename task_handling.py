@@ -10,7 +10,6 @@ import logging
 from langchain.agents import AgentType
 from langchain.agents import initialize_agent
 from langchain.chat_models import ChatOpenAI
-from langchain.vectorstores import FAISS
 
 # YAGTA Imports
 from yagta_task import AgentTask
