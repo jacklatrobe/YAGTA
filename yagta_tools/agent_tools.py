@@ -50,3 +50,9 @@ class AgentTools:
                 description="useful for loading content from a web page, such as those found from DuckDuckGo. Input must be a valid URL and the output will text from the web page.",
             ),
         ]
+
+    def __str__(self):
+        return "\n".join([f"{i+1}. {tool.name}: {tool.description}" for i, tool in enumerate(self.TOOLS)])
+    
+    def __repr__(self):
+        return "\n".join([f"{i+1}. {tool.name}: {tool.description}" for i, tool in enumerate(self.TOOLS)])

@@ -54,7 +54,7 @@ def task_planner(LLM: ChatOpenAI, VECTORSTORE: FAISS, OBJECTIVE: str, TOOLS: lis
             plan_response = writing_chain.run(
                 CONTEXT=context_list,
                 OBJECTIVE=OBJECTIVE,
-                TOOLS=TOOLS,
+                TOOLS=str(TOOLS),
             )
 
             # Validate JSON from LLM

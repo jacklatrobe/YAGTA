@@ -6,7 +6,7 @@
 # Base Imports
 import os
 import logging
-from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import Process, Queue, Lock
 from collections import deque
 
 # Logging - Initialise
@@ -34,7 +34,6 @@ from yagta_tools.agent_tools import AgentTools
 
 # Global Task List
 PENDING_TASKS = deque()
-COMPLETED_TASKS = deque()
 
 # Vectorstore - Init
 def init_vectorstore() -> FAISS:
@@ -66,33 +65,24 @@ def YAGTA(OBJECTIVE: str = None):
 
     # Add initial tasks to pending queue
     logging.info("main: Starting parallel task execution")
-    with ProcessPoolExecutor(max_workers=3) as executor:
-        FUTURES = []
-        for task in PENDING_TASKS:
-            future = executor.submit(execute_task, llm=LLM, task=task, tools=AGENTTOOLS.TOOLS)
-            FUTURES.append(future)
-        while len(FUTURES) > 0:
-            for future in FUTURES:
-                if future.done():
-                    try:
-                        task = future.result()
-                        assert task is not None
-                        COMPLETED_TASKS.append(task)
-                        FUTURES.remove(future)
-                        logging.info(f"main: Task complete - {task.task_description}")
-                    except Exception as ex:
-                        logging.warning(f"main: Task failed - {str(ex.args), str(ex)}")
-                        FUTURES.remove(future)
-                else:
-                    continue
+    q = Queue()
+    FUTURES = []
+    for task in PENDING_TASKS:
+        process = Process(target=execute_task, args=(LLM, task, AGENTTOOLS, q))
+        process.start()
+        FUTURES.append(process)
+    while len(FUTURES) > 0:
+        for thread in FUTURES:
+            if not thread.is_alive():
+                thread.join()
+                FUTURES.remove(thread)
 
     # Save task results to Vectorstore and generate summary string
     logging.info("main: Saving task results to Vectorstore")
     result_summary = "Task Results:"
-    for task in COMPLETED_TASKS:
+    for task in q.get():
         VECTORSTORE.add_texts(task.task_result, [{"task_description": task.task_description, "task_objective": task.task_objective}])
         result_summary = f"{result_summary}\n - {task.task_description}: {task.task_result}"
-        COMPLETED_TASKS.remove(task)
 
     # Summarise task results
     logging.info("main: Generating summary of task results")
@@ -103,4 +93,5 @@ def YAGTA(OBJECTIVE: str = None):
     print(final_result)
 
 if __name__ == "__main__":
+    lock = Lock()
     YAGTA()

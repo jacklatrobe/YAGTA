@@ -4,7 +4,7 @@
 ##  task_handling.py - Task execution functions for YAGTA
 
 # Base Imports
-import logging
+from multiprocessing import Queue
 
 # Langchain Imports
 from langchain.agents import AgentType
@@ -15,8 +15,7 @@ from langchain.chat_models import ChatOpenAI
 from yagta_task import AgentTask
 
 # Task Execution Function
-def execute_task(llm: ChatOpenAI, task: AgentTask, tools: list) -> str:
-    logging.info(f"execute_task: Executing Task: {task.task_description}")
+def execute_task(llm: ChatOpenAI, task: AgentTask, tools: list, q: Queue) -> str:
 
     agent_chain = initialize_agent(
         tools, 
@@ -26,11 +25,9 @@ def execute_task(llm: ChatOpenAI, task: AgentTask, tools: list) -> str:
     result = agent_chain.run(input=f"You are an autonomous task agent. Use your tools to achieve this task: {task.task_description}\n#####\n" + 
                              f"Do not make anything up. Do your best to preserve any URLs, citations or sources in your final response.\n#####\n" +
                              f"This task is being done as part of a broader objective, so try to shape your response so it progresses this objective: {task.task_objective}\n#####\n")
-
-    logging.debug(f"execute_task: Task {task.task_description} result: {result}")
     
-    return AgentTask(
+    q.put(AgentTask(
         task_description = task.task_description,
         task_objective= task.task_objective,
         task_result = result
-    )
+    ))
