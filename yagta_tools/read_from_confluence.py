@@ -1,3 +1,8 @@
+# YAGTA - Yet another autonomous task agent - experiments in autonomous GPT agents that learn over time
+# jack@latrobe.group
+
+##  read_from_confluence.py - Tool for reading from confluence
+
 import os
 import re
 import base64

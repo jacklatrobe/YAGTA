@@ -167,3 +167,6 @@ similar_cache*/*
 # Vectorstore cache
 yagta_index*
 yagta_index*/*
+
+# logs
+yagta.log

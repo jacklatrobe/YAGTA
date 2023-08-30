@@ -1,17 +1,17 @@
+# YAGTA - Yet another autonomous task agent - experiments in autonomous GPT agents that learn over time
+# jack@latrobe.group
+
+##  write_to_confluence.py - Tool for writing to confluence
+
+# Imports
 import os
 import re
 import base64
 import requests
 import json
 import logging
-from bs4 import BeautifulSoup
 from langchain import OpenAI
 from langchain.agents import Tool
-from nltk import download as nltk_download
-from nltk.tokenize import word_tokenize
-nltk_download('stopwords')
-nltk_download('punkt')
-from nltk.corpus import stopwords
 
 # Check for required ENV variables
 if(os.environ.get("CONFLUENCE_CLIENT_ID") == None):
